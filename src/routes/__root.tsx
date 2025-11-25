@@ -55,18 +55,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <ConvexProvider>
           <Header />
           {children}
-          <TanStackDevtools
-            config={{
-              position: 'bottom-right',
-            }}
-            plugins={[
-              {
-                name: 'Tanstack Router',
-                render: <TanStackRouterDevtoolsPanel />,
-              },
-              TanStackQueryDevtools,
-            ]}
-          />
         </ConvexProvider>
         <Scripts />
       </body>

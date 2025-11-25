@@ -151,7 +151,6 @@ function ProfileDashboard() {
           @page { size: landscape; margin: 1cm; }
           .no-print { display: none !important; }
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          /* Hide standard layout headers/sidebars if they exist outside this component */
           nav, header, footer { display: none !important; } 
           .print-full-width { width: 100% !important; max-width: none !important; }
         }
@@ -173,9 +172,6 @@ function ProfileDashboard() {
                 </span>
               )}
             </p>
-          </div>
-          <div className="text-right hidden print:block">
-            <p className="text-sm text-gray-500">Generated on {new Date().toLocaleDateString()}</p>
           </div>
         </div>
       </div>
@@ -247,7 +243,7 @@ function ProfileDashboard() {
           <div className="p-6 overflow-x-auto print:p-0 print:overflow-visible">
             <table className="w-full min-w-[820px] print:min-w-0 print:text-sm">
               <thead>
-                <tr className="border-b bg-orange-50 print:bg-gray-100">
+                <tr className="border-b bg-orange-50 print:!bg-orange-50">
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Metric</th>
                   {sortedWeeks.map((w) => (
                     <th key={w.label} className="text-right py-3 px-4 font-semibold text-gray-700">
@@ -267,7 +263,7 @@ function ProfileDashboard() {
               <tbody>
                 {/* Impressions */}
                 <tr className="border-b hover:bg-gray-50">
-                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:bg-gray-50 font-medium">Impressions</td>
+                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:!bg-orange-50 font-medium">Impressions</td>
                   {sortedWeeks.map(w => (
                     <td key={w._id} className="py-3 px-4 text-right text-lg font-bold">
                        {w.status === 'COMPLETED' ? Number(w.data.impressions).toLocaleString() : '-'}
@@ -276,7 +272,7 @@ function ProfileDashboard() {
                 </tr>
                 {/* Clicks */}
                 <tr className="border-b hover:bg-gray-50">
-                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:bg-gray-50 font-medium">Clicks</td>
+                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:!bg-orange-50 font-medium">Clicks</td>
                   {sortedWeeks.map(w => (
                     <td key={w._id} className="py-3 px-4 text-right text-lg font-bold">
                        {w.status === 'COMPLETED' ? Number(w.data.clicks).toLocaleString() : '-'}
@@ -285,7 +281,7 @@ function ProfileDashboard() {
                 </tr>
                 {/* PPC Spend */}
                 <tr className="border-b hover:bg-gray-50">
-                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:bg-gray-50 font-medium">PPC Spend</td>
+                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:!bg-orange-50 font-medium">PPC Spend</td>
                   {sortedWeeks.map(w => (
                     <td key={w._id} className="py-3 px-4 text-right text-lg font-bold">
                        {w.status === 'COMPLETED' ? formatMoney(w.data.spend, profile.currencyCode) : '-'}
@@ -294,7 +290,7 @@ function ProfileDashboard() {
                 </tr>
                 {/* PPC Sales */}
                 <tr className="border-b hover:bg-gray-50">
-                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:bg-gray-50 font-medium">PPC Sales</td>
+                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:!bg-orange-50 font-medium">PPC Sales</td>
                   {sortedWeeks.map(w => (
                     <td key={w._id} className="py-3 px-4 text-right text-lg font-bold">
                        {w.status === 'COMPLETED' ? formatMoney(w.data.sales, profile.currencyCode) : '-'}
@@ -303,7 +299,7 @@ function ProfileDashboard() {
                 </tr>
                 {/* PPC Orders */}
                 <tr className="border-b hover:bg-gray-50">
-                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:bg-gray-50 font-medium">PPC Orders</td>
+                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:!bg-orange-50 font-medium">PPC Orders</td>
                   {sortedWeeks.map(w => (
                     <td key={w._id} className="py-3 px-4 text-right text-lg font-bold">
                        {w.status === 'COMPLETED' ? Number(w.data.orders).toLocaleString() : '-'}
@@ -312,7 +308,7 @@ function ProfileDashboard() {
                 </tr>
                 {/* ACOS */}
                 <tr className="border-b hover:bg-gray-50">
-                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:bg-gray-50 font-medium">ACOS</td>
+                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:!bg-orange-50 font-medium">ACOS</td>
                   {sortedWeeks.map(w => {
                      const val = w.data.sales > 0 ? w.data.spend / w.data.sales : 0;
                      return (
@@ -324,7 +320,7 @@ function ProfileDashboard() {
                 </tr>
                 {/* CPC */}
                 <tr className="border-b hover:bg-gray-50">
-                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:bg-gray-50 font-medium">Cost per Click</td>
+                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:!bg-orange-50 font-medium">Cost per Click</td>
                   {sortedWeeks.map(w => {
                      const val = w.data.clicks > 0 ? w.data.spend / w.data.clicks : 0;
                      return (
@@ -336,7 +332,7 @@ function ProfileDashboard() {
                 </tr>
                 {/* CTR (Calculated) */}
                 <tr className="border-b hover:bg-gray-50">
-                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:bg-gray-50 font-medium">Click Through Rate</td>
+                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:!bg-orange-50 font-medium">Click Through Rate</td>
                   {sortedWeeks.map(w => {
                      const val = w.data.impressions > 0 ? w.data.clicks / w.data.impressions : 0;
                      return (
@@ -348,7 +344,7 @@ function ProfileDashboard() {
                 </tr>
                 {/* CVR */}
                 <tr className="border-b hover:bg-gray-50">
-                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:bg-gray-50 font-medium">Conversion Rate</td>
+                  <td className="py-3 px-4 text-gray-900 bg-orange-50 print:!bg-orange-50 font-medium">Conversion Rate</td>
                   {sortedWeeks.map(w => {
                      const val = w.data.clicks > 0 ? w.data.orders / w.data.clicks : 0;
                      return (
@@ -392,7 +388,6 @@ function ProfileDashboard() {
                   <CartesianGrid strokeDasharray="3 6" vertical={false} />
                   <XAxis dataKey="label" interval={0} tick={{ fontSize: 12 }} />
                   <YAxis width={84} tickFormatter={(v) => formatMoney(v, profile?.currencyCode, 0)} />
-                  {/* Tooltips are useless in PDF, but LabelLists work great */}
                   <Legend verticalAlign="bottom" wrapperStyle={{ paddingTop: 8 }} />
                   <Bar dataKey="ppcSales" name="PPC Sales" fill={SALES_COLOR} radius={[6,6,0,0]}>
                     <LabelList dataKey="ppcSales" position="top" content={(p:any) => {
@@ -499,3 +494,5 @@ function ProfileDashboard() {
     </div>
   );
 }
+
+export default ProfileDashboard;
