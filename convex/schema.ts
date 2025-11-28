@@ -15,17 +15,19 @@ export default defineSchema({
     .index("by_profileId", ["profileId"])
     .index("by_region", ["region"]),
 
-  // NEW: Stores the state of specific portfolio/date-range reports
   adSnapshots: defineTable({
     profileId: v.string(),
-    portfolioId: v.string(), // "all" or specific ID
+    portfolioId: v.string(), 
     
-    // The specific week this snapshot covers
+    // NEW: Distinguish between "weekly" view and "monthly" view
+    period: v.optional(
+      v.union(v.literal("weekly"), v.literal("monthly"))
+    ),
+
     startDate: v.string(), 
     endDate: v.string(),
     label: v.string(),
 
-    // State management
     status: v.union(
       v.literal("INIT"), 
       v.literal("PENDING"), 
@@ -33,14 +35,12 @@ export default defineSchema({
       v.literal("FAILED")
     ),
     
-    // Amazon Report IDs (to allow resuming)
     reportIds: v.object({
       sp: v.optional(v.string()),
       sb: v.optional(v.string()),
       sd: v.optional(v.string()),
     }),
 
-    // The actual cached data (populated when status === COMPLETED)
     data: v.object({
       impressions: v.number(),
       clicks: v.number(),
@@ -51,6 +51,6 @@ export default defineSchema({
 
     updatedAt: v.number(),
   })
-  .index("by_profile_portfolio", ["profileId", "portfolioId"])
+  .index("by_profile_portfolio_period", ["profileId", "portfolioId", "period"]) // Updated Index
   .index("by_status", ["status"]), 
 });
