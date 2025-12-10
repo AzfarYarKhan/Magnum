@@ -2,7 +2,7 @@ import { action, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
 import { inflate } from "pako";
-import { Doc, Id } from "./_generated/dataModel";
+import { Doc } from "./_generated/dataModel";
 
 /** ================= TYPES ================= */
 type AdType = "sp" | "sb" | "sd";
@@ -22,14 +22,9 @@ const REGION_CONFIG = {
 /** ================= HELPERS ================= */
 function toYmd(d: Date): string { return d.toISOString().split("T")[0]; }
 const monthShort = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const monthFull = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 function ordinal(n:number){const s=["th","st","nd","rd"],v=n%100;return n+((s[(v-20)%10]||s[v])||s[0]);}
 
 function formatLabel(s: Date, e: Date, period: Period){
-  if (period === 'monthly') {
-    if (s.getDate() === 1) return `${monthFull[s.getMonth()]} ${s.getFullYear()}`;
-    return `${monthShort[s.getMonth()]} ${s.getDate()} - ${monthShort[e.getMonth()]} ${e.getDate()}`;
-  }
   const sDay = ordinal(s.getDate()), eDay = ordinal(e.getDate());
   const sMon = monthShort[s.getMonth()], eMon = monthShort[e.getMonth()];
   return `${sDay} ${sMon} – ${eDay} ${eMon}`;
@@ -49,20 +44,17 @@ function buildWeeklyWindows(today = new Date()){
 }
 
 function buildMonthlyWindows(today = new Date()){
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
   const windows: Array<{startStr:string; endStr:string; label:string}> = [];
-  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
-  const startCurrent = new Date(yesterday.getFullYear(), yesterday.getMonth(), 1);
-  
-  if (yesterday >= startCurrent) {
-     windows.push({ startStr: toYmd(startCurrent), endStr: toYmd(yesterday), label: formatLabel(startCurrent, yesterday, 'monthly') });
+  let cursorEnd = end;
+  for (let i = 0; i < 2; i++){
+    const start = new Date(cursorEnd); 
+    start.setDate(cursorEnd.getDate() - 29); // 30-day window
+    windows.push({ startStr: toYmd(start), endStr: toYmd(cursorEnd), label: formatLabel(start, cursorEnd, 'monthly') });
+    const prevEnd = new Date(start); 
+    prevEnd.setDate(start.getDate() - 1);
+    cursorEnd = prevEnd;
   }
-
-  const lastMonthEnd = new Date(startCurrent); 
-  lastMonthEnd.setDate(0); 
-  const lastMonthStart = new Date(lastMonthEnd.getFullYear(), lastMonthEnd.getMonth(), 1);
-
-  windows.push({ startStr: toYmd(lastMonthStart), endStr: toYmd(lastMonthEnd), label: formatLabel(lastMonthStart, lastMonthEnd, 'monthly') });
-
   return windows.reverse(); 
 }
 
@@ -79,7 +71,10 @@ async function getAccessToken(region: "NA" | "EU" | "FE") {
     body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: clientId, client_secret: clientSecret }),
   });
 
-  if (!res.ok) throw new Error(`Failed to refresh token: ${await res.text()}`);
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Auth Failed ${region}: ${txt}`);
+  }
   const data = await res.json();
   return (data.access_token as string)?.trim();
 }
@@ -169,17 +164,14 @@ export const resetSnapshots = mutation({
   }
 });
 
-// === UPDATED: NOW IDEMPOTENT ===
-// This prevents creating a duplicate row if one already exists for the same startDate
-export const createSnapshotStub = mutation({
+export const ensureUniqueSnapshot = mutation({
   args: { 
     profileId: v.string(), portfolioId: v.string(), 
     startDate: v.string(), endDate: v.string(), label: v.string(),
     period: v.union(v.literal("weekly"), v.literal("monthly")) 
   },
   handler: async (ctx, args) => {
-    // 1. Check if it exists
-    const existing = await ctx.db
+    const allMatches = await ctx.db
       .query("adSnapshots")
       .withIndex("by_profile_portfolio_period", q => 
          q.eq("profileId", args.profileId)
@@ -187,14 +179,27 @@ export const createSnapshotStub = mutation({
           .eq("period", args.period)
       )
       .filter(q => q.eq(q.field("startDate"), args.startDate))
-      .first();
+      .collect();
 
-    if (existing) {
-      // 2. If exists, just return its ID (don't create a new one)
-      return existing._id;
+    if (allMatches.length > 0) {
+      const sorted = allMatches.sort((a, b) => {
+        const score = (doc: typeof a) => {
+            let s = 0;
+            if (doc.status === 'COMPLETED') s += 100;
+            if (doc.status === 'PENDING') s += 50;
+            if (doc.data.spend > 0) s += 10;
+            return s;
+        };
+        const diff = score(b) - score(a);
+        if (diff !== 0) return diff;
+        return (b.updatedAt || 0) - (a.updatedAt || 0);
+      });
+
+      const winner = sorted[0];
+      for (let i = 1; i < sorted.length; i++) await ctx.db.delete(sorted[i]._id);
+      return winner._id;
     }
 
-    // 3. If not, create new
     return await ctx.db.insert("adSnapshots", {
       profileId: args.profileId,
       portfolioId: args.portfolioId,
@@ -226,65 +231,9 @@ export const syncAds = action({
     });
 
     const windows = args.period === 'weekly' ? buildWeeklyWindows() : buildMonthlyWindows();
-    const missingWindows = windows.filter(w => 
-      !existing.find(e => e.startDate === w.startStr && e.endDate === w.endStr)
-    );
-
-    if (missingWindows.length === 0) return { success: true, message: "Data up to date" };
-
-    const profile = await ctx.runQuery(api.profiles.getById, { profileId: args.profileId });
-    if (!profile) throw new Error("Profile not found");
-    const region = (profile.region || "NA") as "NA"|"EU"|"FE";
-    const clientId = process.env.AMAZON_CLIENT_ID!;
-    const accessToken = await getAccessToken(region);
-    const apiUrl = REGION_CONFIG[region].apiUrl;
-
-    // === ROBUST REQUEST FUNCTION WITH RETRY ===
-    const requestReport = async (type: AdType, start: string, end: string, attempt = 1): Promise<string | null> => {
-      const body = {
-        name: `${type.toUpperCase()} ${start}-${end}`,
-        startDate: start, endDate: end,
-        configuration: {
-          adProduct: type === "sp" ? "SPONSORED_PRODUCTS" : type === "sb" ? "SPONSORED_BRANDS" : "SPONSORED_DISPLAY",
-          groupBy: ["campaign"],
-          columns: type === "sp" ? ["impressions","clicks","cost","sales14d","purchases14d"] : ["impressions","clicks","cost"],
-          reportTypeId: type === "sp" ? "spCampaigns" : type === "sb" ? "sbCampaigns" : "sdCampaigns",
-          timeUnit: "SUMMARY", format: "GZIP_JSON",
-        },
-      };
-
-      try {
-        const res = await fetch(`${apiUrl}/reporting/reports`, {
-          method: "POST",
-          headers: {
-            "Amazon-Advertising-API-ClientId": clientId,
-            "Amazon-Advertising-API-Scope": args.profileId,
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/vnd.createasyncreportrequest.v3+json",
-          },
-          body: JSON.stringify(body),
-        });
-
-        if (res.ok) {
-          const j = await res.json();
-          return j.reportId as string;
-        }
-        
-        if (res.status === 429 && attempt <= 3) {
-          const delay = attempt * 2000;
-          await new Promise(r => setTimeout(r, delay));
-          return requestReport(type, start, end, attempt + 1);
-        }
-        return null;
-      } catch (e: any) {
-        return null;
-      }
-    };
-
-    // === SEQUENTIAL EXECUTION ===
-    for (const w of missingWindows) {
-      // This will now reuse the existing row if it was created by a parallel process
-      const snapshotId = await ctx.runMutation(api.amazonAds.createSnapshotStub, {
+    
+    for (const w of windows) {
+      const snapshotId = await ctx.runMutation(api.amazonAds.ensureUniqueSnapshot, {
         profileId: args.profileId,
         portfolioId: args.portfolioId,
         period: args.period,
@@ -293,17 +242,72 @@ export const syncAds = action({
         label: w.label
       });
 
-      const sp = await requestReport("sp", w.startStr, w.endStr);
-      const sb = await requestReport("sb", w.startStr, w.endStr);
-      const sd = await requestReport("sd", w.startStr, w.endStr);
+      const match = existing.find(e => e.startDate === w.startStr);
+      const needsFetch = !match || (match.status === 'INIT' && (!match.reportIds || Object.keys(match.reportIds).length === 0));
 
-      await ctx.runMutation(api.amazonAds.saveReportIds, {
-        snapshotId,
-        reportIds: { sp: sp || undefined, sb: sb || undefined, sd: sd || undefined }
-      });
+      if (needsFetch) {
+         const profile = await ctx.runQuery(api.profiles.getById, { profileId: args.profileId });
+         if (!profile) continue;
+         const region = (profile.region || "NA") as "NA"|"EU"|"FE";
+         const accessToken = await getAccessToken(region);
+         const apiUrl = REGION_CONFIG[region].apiUrl;
+         const clientId = process.env.AMAZON_CLIENT_ID!;
+
+         const requestReport = async (type: AdType, start: string, end: string, attempt = 1): Promise<string | null> => {
+            const body = {
+                name: `${type.toUpperCase()} ${start}-${end}`,
+                startDate: start, endDate: end,
+                configuration: {
+                adProduct: type === "sp" ? "SPONSORED_PRODUCTS" : type === "sb" ? "SPONSORED_BRANDS" : "SPONSORED_DISPLAY",
+                groupBy: ["campaign"],
+                columns: type === "sp" ? ["impressions","clicks","cost","sales14d","purchases14d"] : ["impressions","clicks","cost"],
+                reportTypeId: type === "sp" ? "spCampaigns" : type === "sb" ? "sbCampaigns" : "sdCampaigns",
+                timeUnit: "SUMMARY", format: "GZIP_JSON",
+                },
+            };
+            try {
+                const res = await fetch(`${apiUrl}/reporting/reports`, {
+                method: "POST",
+                headers: {
+                    "Amazon-Advertising-API-ClientId": clientId,
+                    "Amazon-Advertising-API-Scope": args.profileId,
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": "application/vnd.createasyncreportrequest.v3+json",
+                },
+                body: JSON.stringify(body),
+                });
+                if (res.ok) { const j = await res.json(); return j.reportId as string; }
+                if (res.status === 429 && attempt <= 3) {
+                    await new Promise(r => setTimeout(r, attempt * 2000));
+                    return requestReport(type, start, end, attempt + 1);
+                }
+                const errTxt = await res.text();
+                console.error(`[Amazon] Report creation failed (${type}): ${res.status} ${errTxt}`);
+                return null;
+            } catch (e: any) { 
+                console.error(`[Amazon] Network error (${type}): ${e.message}`);
+                return null; 
+            }
+         };
+
+         // Fetch sequentially to be nice to rate limits
+         const sp = await requestReport("sp", w.startStr, w.endStr);
+         const sb = await requestReport("sb", w.startStr, w.endStr);
+         const sd = await requestReport("sd", w.startStr, w.endStr);
+
+         // FIX: Only save if we actually got IDs. Otherwise leave as INIT to retry later.
+         if (sp || sb || sd) {
+             await ctx.runMutation(api.amazonAds.saveReportIds, {
+                snapshotId,
+                reportIds: { sp: sp || undefined, sb: sb || undefined, sd: sd || undefined }
+             });
+         } else {
+             console.warn(`[Sync] Skipping save for ${w.label} - No reports created.`);
+         }
+      }
     }
 
-    return { success: true, initiated: missingWindows.length };
+    return { success: true };
   }
 });
 
@@ -330,7 +334,8 @@ export const pollPendingSnapshots = action({
       if (reports.sd) reportTypes.push({ id: reports.sd, type: "sd" });
 
       if (reportTypes.length === 0) {
-        // Stop polling empty rows
+        // Safe guard: If somehow we are PENDING but have no IDs, complete it to stop loop.
+        // But with the fix above, this should rarely happen.
         await ctx.runMutation(api.amazonAds.completeSnapshot, { snapshotId: row._id, data: row.data });
         continue;
       }
