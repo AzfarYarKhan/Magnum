@@ -15,7 +15,77 @@ const SPEND_COLOR = '#f97316';
 const SALES_COLOR = '#0ea5e9'; 
 const CVR_COLOR = '#2563eb';   
 const ACOS_COLOR = '#16a34a';  
-const CPC_COLOR = '#f59e0b';   
+const CPC_COLOR = '#f59e0b';
+
+/** ================= IMAGE UPLOAD COMPONENT ================= */
+function ImageUploadForPDF() {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setImageUrl(event.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setImageUrl(null);
+  };
+
+  // If no image, don't render anything (won't show in PDF)
+  if (!imageUrl) {
+    return (
+      <div className="bg-white rounded-lg border shadow mt-6 no-print">
+        <div className="p-4 border-b bg-gray-50">
+          <h3 className="text-xl font-semibold">Rank Tracking</h3>
+        </div>
+        <div className="p-8 text-center"> 
+          <label className="cursor-pointer inline-flex flex-col items-center justify-center px-6 py-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors">
+            <svg className="w-12 h-12 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <span className="text-sm text-gray-600 font-medium">Click to upload image</span>
+            <span className="text-xs text-gray-500 mt-1">Will appear in PDF export</span>
+            <input 
+              type="file" 
+              accept="image/*" 
+              onChange={handleImageUpload}
+              className="hidden"
+            />
+          </label>
+        </div>
+      </div>
+    );
+  }
+
+  // If image exists, show preview (will appear in PDF)
+  return (
+    <div className="bg-white rounded-lg border shadow mt-6 print:break-inside-avoid print:shadow-none print:border-none">
+      <div className="p-4 border-b bg-gray-50 print:bg-white print:px-0">
+        <div className="flex justify-between items-center">
+          <h3 className="text-xl font-semibold">Rank Tracking</h3>
+          <button 
+            onClick={handleRemoveImage}
+            className="text-red-600 hover:text-red-700 text-sm font-medium no-print"
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+      <div className="p-4 print:px-0 flex justify-center">
+        <img 
+          src={imageUrl} 
+          alt="Uploaded content" 
+          className="max-w-full h-auto max-h-[600px] object-contain rounded"
+        />
+      </div>
+    </div>
+  );
+}
 
 export const Route = createFileRoute('/profile/$profileId')({
   component: ProfileDashboard,
@@ -47,6 +117,10 @@ export default function ProfileDashboard() {
   const [period, setPeriod] = useState<"weekly" | "monthly">("weekly");
   const [isRefreshing, setIsRefreshing] = useState(false); 
 
+  // NEW: State for the dropdown filter (1-4 weeks or 1-2 months)
+  // We initialize with a high number; the effect below corrects it if needed.
+  const [selectedDuration, setSelectedDuration] = useState<number>(4);
+
   // Query DB
   const rawSnapshots = useQuery(api.amazonAds.getSnapshots, { 
     profileId, 
@@ -64,6 +138,11 @@ export default function ProfileDashboard() {
   const [portfolios, setPortfolios] = useState<any[]>([]);
   const [loadingPorts, setLoadingPorts] = useState(false);
 
+  // Reset duration when period changes
+  useEffect(() => {
+    setSelectedDuration(period === 'weekly' ? 4 : 2);
+  }, [period]);
+
   // 2. Load Portfolios
   useEffect(() => {
     const run = async () => {
@@ -78,8 +157,6 @@ export default function ProfileDashboard() {
   // 3. Sync Trigger
   useEffect(() => {
     if (!selectedPortfolio) return;
-    
-    // Gate: If data exists and we aren't refreshing, don't auto-fetch.
     if (rawSnapshots && rawSnapshots.length > 0 && !isRefreshing) return;
 
     if (rawSnapshots?.length === 0 || isRefreshing) {
@@ -99,8 +176,8 @@ export default function ProfileDashboard() {
     return () => clearInterval(interval);
   }, [hasPending, profileId, pollPending]);
 
-  // 5. Data Preparation (UPDATED: CLEAN UP EMPTY ROWS)
-  const sortedWeeks = useMemo(() => {
+  // 5. Data Preparation
+  const allWeeks = useMemo(() => {
     if (!rawSnapshots || rawSnapshots.length === 0) return [];
 
     // Filter Window: 12 hours
@@ -110,35 +187,45 @@ export default function ProfileDashboard() {
     // Keep only recent batch
     const latestBatch = rawSnapshots.filter(s => (maxTime - (s.updatedAt || 0)) < BATCH_WINDOW);
 
-    // Deduplicate logic: Favor rows that HAVE data
+    // Deduplicate logic
     const uniqueMap = new Map();
     for (const snap of latestBatch) {
         const existing = uniqueMap.get(snap.startDate);
-        
-        // Check if current snapshot is "Better" (has report IDs) than the existing one
         const hasData = snap.reportIds && Object.keys(snap.reportIds).length > 0;
         const existingHasData = existing && existing.reportIds && Object.keys(existing.reportIds).length > 0;
 
-        // If we don't have this date yet, add it
         if (!existing) {
             uniqueMap.set(snap.startDate, snap);
         } else {
-            // If the new one has data and the old one didn't (empty brackets), take the new one
             if (hasData && !existingHasData) {
                 uniqueMap.set(snap.startDate, snap);
             }
-            // If both have data, take the fresher one
             else if (hasData && existingHasData && (snap.updatedAt || 0) > (existing.updatedAt || 0)) {
                 uniqueMap.set(snap.startDate, snap);
             }
         }
     }
 
+    // Sort Chronologically: Oldest -> Newest (Left to Right in table)
     return Array.from(uniqueMap.values()).sort((a, b) => a.startDate.localeCompare(b.startDate));
   }, [rawSnapshots]);
 
+  const allLoaded = allWeeks.length > 0 && !hasPending && allWeeks.every(s => s.status === 'COMPLETED');
+
+  // === DYNAMIC FILTERING ===
+  // We slice the array based on selectedDuration.
+  // Since allWeeks is sorted Oldest -> Newest (Index 0 is old, Index N is new),
+  // We want to keep the N newest items.
+  // e.g., if we have 4 weeks and user selects 1, we want the LAST one (the most recent).
+  const visibleWeeks = useMemo(() => {
+    if (!allWeeks.length) return [];
+    // Take the last N items (most recent dates)
+    const count = Math.min(selectedDuration, allWeeks.length);
+    return allWeeks.slice(-count); 
+  }, [allWeeks, selectedDuration]);
+
   const chartData = useMemo(() => {
-    return sortedWeeks.map(w => {
+    return visibleWeeks.map(w => {
       const d = w.data;
       const acos = d.sales > 0 ? d.spend / d.sales : 0;
       const cpc = d.clicks > 0 ? d.spend / d.clicks : 0;
@@ -147,7 +234,7 @@ export default function ProfileDashboard() {
       if (w.status !== 'COMPLETED') return { label: w.label, spend: 0, ppcSales: 0, clicks: 0, impressions: 0, acos: 0, cpc: 0, cvr: 0 };
       return { label: w.label, spend: d.spend, ppcSales: d.sales, clicks: d.clicks, impressions: d.impressions, acos, cpc, cvr };
     });
-  }, [sortedWeeks]);
+  }, [visibleWeeks]);
 
   // 6. Handlers
   const handleRefresh = async () => {
@@ -188,33 +275,61 @@ export default function ProfileDashboard() {
 
       {/* Controls */}
       <div className="mb-6 bg-white rounded-lg border p-4 flex flex-col md:flex-row justify-between items-end md:items-center gap-4 no-print">
-        <div className="w-full md:w-auto flex flex-col md:flex-row gap-4 items-end md:items-center">
-          <div>
-            <label className="block text-sm font-semibold mb-2">Filter by Portfolio:</label>
-            {loadingPorts ? <p className="text-gray-500 text-sm">Loading...</p> : (
-              <select value={selectedPortfolio} onChange={(e) => setSelectedPortfolio(e.target.value)} disabled={hasPending || isRefreshing} className="w-full md:w-72 px-4 py-2 border rounded-lg">
-                <option value="">Select a Portfolio</option>
-                {portfolios.map((p) => <option key={p.portfolioId} value={p.portfolioId}>{p.name} ({p.state})</option>)}
-              </select>
+        <div className="w-full md:w-auto flex flex-col gap-4">
+          <div className="flex flex-col md:flex-row gap-4 items-end md:items-center">
+            <div>
+                <label className="block text-sm font-semibold mb-2">Filter by Portfolio:</label>
+                {loadingPorts ? <p className="text-gray-500 text-sm">Loading...</p> : (
+                <select value={selectedPortfolio} onChange={(e) => setSelectedPortfolio(e.target.value)} disabled={hasPending || isRefreshing} className="w-full md:w-72 px-4 py-2 border rounded-lg">
+                    <option value="">Select a Portfolio</option>
+                    {portfolios.map((p) => <option key={p.portfolioId} value={p.portfolioId}>{p.name} ({p.state})</option>)}
+                </select>
+                )}
+            </div>
+
+            {/* PERIOD TOGGLE */}
+            {selectedPortfolio && (
+                <div className="bg-gray-100 p-1 rounded-lg flex h-[42px] items-center">
+                <button 
+                    onClick={() => setPeriod("weekly")}
+                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${period === 'weekly' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                    Weekly
+                </button>
+                <button 
+                    onClick={() => setPeriod("monthly")}
+                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${period === 'monthly' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                    Monthly
+                </button>
+                </div>
             )}
           </div>
 
-          {/* TOGGLE BUTTON */}
-          {selectedPortfolio && (
-            <div className="bg-gray-100 p-1 rounded-lg flex">
-              <button 
-                onClick={() => setPeriod("weekly")}
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${period === 'weekly' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
-              >
-                Weekly (4 Wks)
-              </button>
-              <button 
-                onClick={() => setPeriod("monthly")}
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${period === 'monthly' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
-              >
-                Monthly (2 Mos)
-              </button>
-            </div>
+          {/* DURATION DROPDOWN (Only visible when loaded) */}
+          {selectedPortfolio && allLoaded && (
+             <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-300">
+                <label className="text-sm font-medium text-gray-700">Show last:</label>
+                <select 
+                    value={selectedDuration}
+                    onChange={(e) => setSelectedDuration(Number(e.target.value))}
+                    className="px-3 py-1.5 border rounded-md text-sm bg-gray-50 focus:ring-2 focus:ring-blue-500"
+                >
+                    {period === 'weekly' ? (
+                        <>
+                            <option value={1}>1 Week</option>
+                            <option value={2}>2 Weeks</option>
+                            <option value={3}>3 Weeks</option>
+                            <option value={4}>4 Weeks</option>
+                        </>
+                    ) : (
+                        <>
+                            <option value={1}>1 Month</option>
+                            <option value={2}>2 Months</option>
+                        </>
+                    )}
+                </select>
+             </div>
           )}
         </div>
         
@@ -228,14 +343,16 @@ export default function ProfileDashboard() {
       {/* Table */}
       <div className="bg-white rounded-lg border shadow mb-8 print:shadow-none print:border-none">
         <div className="p-4 border-b bg-gray-50 print:bg-white print:border-b-2 print:px-0">
-          <h2 className="text-xl font-semibold">{period === 'weekly' ? 'Last 4 Weeks' : 'Last 2 Months'} Performance</h2>
+          <h2 className="text-xl font-semibold">
+            {period === 'weekly' ? `Last ${visibleWeeks.length} Week${visibleWeeks.length > 1 ? 's' : ''}` : `Last ${visibleWeeks.length} Month${visibleWeeks.length > 1 ? 's' : ''}`} Performance
+          </h2>
           <p className="hidden print:block text-sm text-gray-500">Portfolio: {portfolios.find(p => p.portfolioId === selectedPortfolio)?.name}</p>
           {selectedPortfolio && hasPending && <p className="text-xs text-blue-600 animate-pulse mt-1 no-print">Syncing...</p>}
         </div>
 
         {!selectedPortfolio ? (
           <div className="p-8 text-center text-gray-500">Please select a portfolio.</div>
-        ) : sortedWeeks.length === 0 && !isRefreshing ? (
+        ) : allWeeks.length === 0 && !isRefreshing ? (
           <div className="p-8 text-center">
              {(rawSnapshots && rawSnapshots.length === 0) ? (
                  <>
@@ -252,7 +369,7 @@ export default function ProfileDashboard() {
               <thead>
                 <tr className="border-b bg-orange-50 print:bg-gray-100">
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Metric</th>
-                  {sortedWeeks.map((w) => (
+                  {visibleWeeks.map((w) => (
                     <th key={w.label} className="text-right py-3 px-4 font-semibold text-gray-700">
                       {w.label}
                       <div className="text-xs text-gray-500 font-normal">{period === 'weekly' ? `${w.startDate} – ${w.endDate}` : ''}</div>
@@ -271,24 +388,24 @@ export default function ProfileDashboard() {
                  ].map(row => (
                    <tr key={row.key} className="border-b hover:bg-gray-50">
                      <td className="py-3 px-4 text-gray-900 bg-orange-50 print:bg-gray-50 font-medium">{row.label}</td>
-                     {sortedWeeks.map(w => <td key={w._id} className="py-3 px-4 text-right text-lg font-bold">{w.status === 'COMPLETED' ? row.fmt(w.data[row.key as keyof typeof w.data]) : '-'}</td>)}
+                     {visibleWeeks.map(w => <td key={w._id} className="py-3 px-4 text-right text-lg font-bold">{w.status === 'COMPLETED' ? row.fmt(w.data[row.key as keyof typeof w.data]) : '-'}</td>)}
                    </tr>
                  ))}
                  <tr className="border-b hover:bg-gray-50">
                     <td className="py-3 px-4 text-gray-900 bg-orange-50 print:bg-gray-50 font-medium">ACOS</td>
-                    {sortedWeeks.map(w => <td key={w._id} className="py-3 px-4 text-right text-lg font-bold">{w.status === 'COMPLETED' ? pct(w.data.sales > 0 ? w.data.spend/w.data.sales : 0) : '-'}</td>)}
+                    {visibleWeeks.map(w => <td key={w._id} className="py-3 px-4 text-right text-lg font-bold">{w.status === 'COMPLETED' ? pct(w.data.sales > 0 ? w.data.spend/w.data.sales : 0) : '-'}</td>)}
                  </tr>
                  <tr className="border-b hover:bg-gray-50">
                     <td className="py-3 px-4 text-gray-900 bg-orange-50 print:bg-gray-50 font-medium">Cost per Click</td>
-                    {sortedWeeks.map(w => <td key={w._id} className="py-3 px-4 text-right text-lg font-bold">{w.status === 'COMPLETED' ? formatMoney(w.data.clicks > 0 ? w.data.spend/w.data.clicks : 0, profile.currencyCode) : '-'}</td>)}
+                    {visibleWeeks.map(w => <td key={w._id} className="py-3 px-4 text-right text-lg font-bold">{w.status === 'COMPLETED' ? formatMoney(w.data.clicks > 0 ? w.data.spend/w.data.clicks : 0, profile.currencyCode) : '-'}</td>)}
                  </tr>
                  <tr className="border-b hover:bg-gray-50">
                     <td className="py-3 px-4 text-gray-900 bg-orange-50 print:bg-gray-50 font-medium">CTR</td>
-                    {sortedWeeks.map(w => <td key={w._id} className="py-3 px-4 text-right text-lg font-bold">{w.status === 'COMPLETED' ? pct(w.data.impressions > 0 ? w.data.clicks/w.data.impressions : 0) : '-'}</td>)}
+                    {visibleWeeks.map(w => <td key={w._id} className="py-3 px-4 text-right text-lg font-bold">{w.status === 'COMPLETED' ? pct(w.data.impressions > 0 ? w.data.clicks/w.data.impressions : 0) : '-'}</td>)}
                  </tr>
                  <tr className="border-b hover:bg-gray-50">
                     <td className="py-3 px-4 text-gray-900 bg-orange-50 print:bg-gray-50 font-medium">Conversion Rate</td>
-                    {sortedWeeks.map(w => <td key={w._id} className="py-3 px-4 text-right text-lg font-bold">{w.status === 'COMPLETED' ? pct(w.data.clicks > 0 ? w.data.orders/w.data.clicks : 0) : '-'}</td>)}
+                    {visibleWeeks.map(w => <td key={w._id} className="py-3 px-4 text-right text-lg font-bold">{w.status === 'COMPLETED' ? pct(w.data.clicks > 0 ? w.data.orders/w.data.clicks : 0) : '-'}</td>)}
                  </tr>
               </tbody>
             </table>
@@ -297,7 +414,7 @@ export default function ProfileDashboard() {
       </div>
 
       {/* Charts */}
-      {sortedWeeks.some(w => w.status === 'COMPLETED') && (
+      {visibleWeeks.some(w => w.status === 'COMPLETED') && (
         <div className="mt-8 space-y-8 print:break-inside-avoid">
           {/* Spend vs Sales */}
           <div className="bg-white rounded-lg border shadow mt-6 overflow-visible print:break-inside-avoid print:shadow-none print:border-none">
@@ -363,6 +480,9 @@ export default function ProfileDashboard() {
               </ResponsiveContainer>
             </div>
           </div>
+
+          {/* Image Upload Component */}
+          <ImageUploadForPDF />
 
         </div>
       )}
