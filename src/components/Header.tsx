@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-
+import { useAuth } from '@clerk/clerk-react'
 import { useState } from 'react'
 import {
   ChevronDown,
@@ -13,6 +13,7 @@ import {
   StickyNote,
   Table,
   X,
+  LogOut,
 } from 'lucide-react'
 
 export default function Header() {
@@ -20,20 +21,38 @@ export default function Header() {
   const [groupedExpanded, setGroupedExpanded] = useState<
     Record<string, boolean>
   >({})
+  const { signOut } = useAuth()
+
+  const handleLogout = async () => {
+    await signOut()
+  }
 
   return (
     <>
-      <header className="p-4 flex items-center bg-gray-800 text-white shadow-lg">
+      <header className="p-4 flex items-center justify-between bg-gray-800 text-white shadow-lg">
+        <div className="flex items-center">
+          <button
+            onClick={() => setIsOpen(true)}
+            className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+            aria-label="Open menu"
+          >
+            <Menu size={24} />
+          </button>
+          <h1 className="text-4xl font-extrabold text-white tracking-tight pl-4">
+            Magnum
+          </h1>
+        </div>
+
         <button
-          onClick={() => setIsOpen(true)}
-          className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
-          aria-label="Open menu"
-        >
-          <Menu size={24} />
-        </button>
-        <h1 className="text-4xl font-extrabold text-white tracking-tight text-center pl-4">
-          Magnum
-        </h1> 
+  onClick={handleLogout}
+  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-600 
+             text-gray-200 hover:text-white hover:border-gray-400 
+             hover:bg-gray-700 transition-all duration-200 font-medium"
+  aria-label="Logout"
+>
+  <LogOut size={18} />
+  <span>Logout</span>
+</button>
       </header>
 
       <aside

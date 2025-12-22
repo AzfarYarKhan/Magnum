@@ -9,6 +9,8 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SignupRouteImport } from './routes/signup'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
@@ -27,6 +29,16 @@ import { Route as DemoStartSsrSpaModeRouteImport } from './routes/demo/start.ssr
 import { Route as DemoStartSsrFullSsrRouteImport } from './routes/demo/start.ssr.full-ssr'
 import { Route as DemoStartSsrDataOnlyRouteImport } from './routes/demo/start.ssr.data-only'
 
+const SignupRoute = SignupRouteImport.update({
+  id: '/signup',
+  path: '/signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CallbackRoute = CallbackRouteImport.update({
   id: '/callback',
   path: '/callback',
@@ -117,6 +129,8 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/callback': typeof CallbackRoute
+  '/login': typeof LoginRoute
+  '/signup': typeof SignupRoute
   '/demo/convex': typeof DemoConvexRoute
   '/demo/table': typeof DemoTableRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
@@ -136,6 +150,8 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/callback': typeof CallbackRoute
+  '/login': typeof LoginRoute
+  '/signup': typeof SignupRoute
   '/demo/convex': typeof DemoConvexRoute
   '/demo/table': typeof DemoTableRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
@@ -156,6 +172,8 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/callback': typeof CallbackRoute
+  '/login': typeof LoginRoute
+  '/signup': typeof SignupRoute
   '/demo/convex': typeof DemoConvexRoute
   '/demo/table': typeof DemoTableRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
@@ -177,6 +195,8 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/callback'
+    | '/login'
+    | '/signup'
     | '/demo/convex'
     | '/demo/table'
     | '/demo/tanstack-query'
@@ -196,6 +216,8 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/callback'
+    | '/login'
+    | '/signup'
     | '/demo/convex'
     | '/demo/table'
     | '/demo/tanstack-query'
@@ -215,6 +237,8 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/callback'
+    | '/login'
+    | '/signup'
     | '/demo/convex'
     | '/demo/table'
     | '/demo/tanstack-query'
@@ -235,6 +259,8 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthRoute: typeof AuthRoute
   CallbackRoute: typeof CallbackRoute
+  LoginRoute: typeof LoginRoute
+  SignupRoute: typeof SignupRoute
   DemoConvexRoute: typeof DemoConvexRoute
   DemoTableRoute: typeof DemoTableRoute
   DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
@@ -253,6 +279,20 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/signup': {
+      id: '/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof SignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/callback': {
       id: '/callback'
       path: '/callback'
@@ -379,6 +419,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthRoute: AuthRoute,
   CallbackRoute: CallbackRoute,
+  LoginRoute: LoginRoute,
+  SignupRoute: SignupRoute,
   DemoConvexRoute: DemoConvexRoute,
   DemoTableRoute: DemoTableRoute,
   DemoTanstackQueryRoute: DemoTanstackQueryRoute,
@@ -399,10 +441,11 @@ export const routeTree = rootRouteImport
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
+import type { startInstance } from './start.ts'
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

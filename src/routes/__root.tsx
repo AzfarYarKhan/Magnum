@@ -1,15 +1,15 @@
+// src/routes/__root.tsx
 import {
   HeadContent,
   Scripts,
   createRootRouteWithContext,
+  Outlet,
+  useLocation,
 } from '@tanstack/react-router'
-import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
-import { TanStackDevtools } from '@tanstack/react-devtools'
+import { useAuth } from '@clerk/clerk-react'
 
 import Header from '../components/Header'
-
 import ConvexProvider from '../integrations/convex/provider'
-
 import TanStackQueryDevtools from '../integrations/tanstack-query/devtools'
 
 import appCss from '../styles.css?url'
@@ -42,10 +42,13 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
     ],
   }),
 
-  shellComponent: RootDocument,
+  component: RootComponent,
 })
 
-function RootDocument({ children }: { children: React.ReactNode }) {
+// Public routes where Header should NOT be shown
+const PUBLIC_ROUTES = ['/login', '/signup']
+
+function RootComponent() {
   return (
     <html lang="en">
       <head>
@@ -53,11 +56,25 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <ConvexProvider>
-          <Header />
-          {children}
+          <ConditionalHeader />
+          <Outlet />
         </ConvexProvider>
         <Scripts />
       </body>
     </html>
   )
+}
+
+function ConditionalHeader() {
+  const { isSignedIn } = useAuth()
+  const location = useLocation()
+  
+  // Don't show header on public routes or if not signed in
+  const isPublicRoute = PUBLIC_ROUTES.includes(location.pathname)
+  
+  if (!isSignedIn || isPublicRoute) {
+    return null
+  }
+  
+  return <Header />
 }

@@ -14,6 +14,16 @@ const config = defineConfig({
     tanstackStart(),
     viteReact(),
   ],
+  resolve: {
+    alias: {
+      // Fix cookie module resolution
+      'cookie': 'cookie/index.js',
+    },
+  },
+  
+  optimizeDeps: {
+    include: ['cookie'],
+  },
 })
 
 export default config
